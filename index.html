@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Singtel Board Network</title>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Board Network Diagram</h1>
+
+  <!-- Help panel toggle -->
+  <div style="margin-bottom:10px;">
+    <button id="helpToggle" aria-expanded="false" style="padding:6px 10px; border-radius:6px;">Show Help</button>
+    <button id="showCompaniesBtn" aria-expanded="false" style="padding:6px 10px; border-radius:6px; margin-left:8px;">Show Companies</button>
+    <button id="showSummaryBtn" aria-expanded="false" style="padding:6px 10px; border-radius:6px; margin-left:8px;">Show Board Summary</button>
+  </div>
+
+  <!-- Collapsible help panel (inserted but hidden by default) -->
+  <div id="helpPanel" style="display:none; border:1px solid #e6e9ec; background:#ffffff; padding:12px; border-radius:6px; margin-bottom:12px; max-width:820px;">
+    <h2 style="margin-top:0;">How to use this board network</h2>
+    <ol id="helpList">
+      <li><strong>Visual Exploration:</strong> Click the <em>Visual</em> mode to expand and explore the graph interactively. Click a company (box) to reveal its directors; click a director (ellipse) to follow their other connections.</li>
+      <li><strong>List Exploration:</strong> Click the <em>List</em> mode to use the breadcrumb trail. The breadcrumb shows the current navigation path; use it to step back or refocus on a company.</li>
+      <li><strong>Grey nodes:</strong> Nodes shaded grey represent directors connected to exactly one company and cannot be expanded further.</li>
+      <li><strong>Search:</strong> Start by typing a company or director name in the search box, select a suggestion, and click <em>Go</em> to center and reveal that node.</li>
+      <li><strong>Dataset size:</strong> There are a total of <span id="countCompanies">x</span> company nodes and <span id="countDirectors">y</span> director nodes in the dataset.</li>
+    </ol>
+    <p style="margin:6px 0 0 0; font-size:13px; color:#555;">Quick tips: Use the Reset button to collapse the graph; revealed list items persist until you collapse them; use the breadcrumb website/copy button to open or copy the company’s public board page when available.</p>
+  </div>
+
+  <!-- Collapsible company list panel -->
+  <div id="companyListPanel" style="display:none; border:1px solid #e6e9ec; background:#fff; padding:10px; border-radius:6px; margin-bottom:12px; max-width:820px;">
+    <h3 style="margin-top:0; margin-bottom:6px;">Companies in Network <small id="companyCount" style="color:#666; font-weight:normal; margin-left:8px;"></small></h3>
+    <div id="companyList" style="max-height:260px; overflow:auto; font-size:14px;"></div>
+  </div>
+
+  <div id="summaryPanel" style="display:none; border:1px solid #e6e9ec; background:#fff; padding:12px; border-radius:6px; margin-bottom:12px; max-width:820px;">
+    <h3 style="margin-top:0; margin-bottom:10px;">Board Connection Summary</h3>
+    
+    <div class="summary-search-container" style="position: relative; margin-bottom: 12px;">
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="summarySearchInput" placeholder="Enter a company name..." style="flex-grow: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #cfd2d6;">
+        <button id="summarySearchBtn">Search</button>
+      </div>
+      <div id="summarySuggestions" class="suggestions"></div>
+    </div>
+    
+    <div id="summaryResults" style="max-height: 300px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 10px;">
+      </div>
+  </div>
+
+  <div id="controls">
+
+
+  <button id="resetButton">Reset</button>
+    <span style="margin-left:12px;">
+      Explore mode:
+      <label style="margin-left:8px; font-size:13px;"><input type="radio" name="exploreMode" id="exploreVisual" value="visual" checked> Visual</label>
+      <label style="margin-left:6px; font-size:13px;"><input type="radio" name="exploreMode" id="exploreList" value="list"> List</label>
+    </span>
+    <div class="search-container">
+      <input type="text" id="searchInput" placeholder="Search for companies or directors..." style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cfd2d6; margin-left: 10px; width: 300px;">
+      <div id="suggestions" class="suggestions"></div>
+    </div>
+  <button id="goButton" style="margin-left: 5px;">Go</button>
+    <span class="pill" id="statsPill">0 nodes • 0 edges visible</span>
+  </div>
+
+  <div id="breadcrumb" style="margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; min-height: 20px; display: none;">
+    <strong>Current Path:</strong> <span id="breadcrumbContent"></span>
+  <button id="clearBreadcrumbBtn" style="float: right; padding: 2px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #ccc; background: #fff; cursor: pointer;">Clear</button>
+  </div>
+
+  <!-- Notices area for data warnings -->
+  <div id="notices" style="color:#b02a37; margin-bottom:8px; font-size:13px;"></div>
+
+  <div id="network"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Toggle help panel visibility and fill the node counts
+    (function(){
+      const helpToggle = document.getElementById('helpToggle');
+      const helpPanel = document.getElementById('helpPanel');
+      helpToggle.addEventListener('click', ()=>{
+        const expanded = helpPanel.style.display !== 'none';
+        helpPanel.style.display = expanded ? 'none' : 'block';
+        helpToggle.textContent = expanded ? 'Show Help' : 'Hide Help';
+        helpToggle.setAttribute('aria-expanded', (!expanded).toString());
+      });
+
+      // Fill counts from data.js when it is loaded
+      try {
+        const nodes = (typeof nodesData !== 'undefined') ? nodesData : (window.nodesData||[]);
+        const companies = nodes.filter(n=>n.shape==='box').length;
+        const directors = nodes.filter(n=>n.shape==='ellipse').length;
+        document.getElementById('countCompanies').textContent = companies;
+        document.getElementById('countDirectors').textContent = directors;
+        // populate company list if panel exists
+        const showCompaniesBtn = document.getElementById('showCompaniesBtn');
+        const companyListPanel = document.getElementById('companyListPanel');
+        const companyListDiv = document.getElementById('companyList');
+        const companyCount = document.getElementById('companyCount');
+        if (companyListDiv) {
+          const companyNodes = nodes.filter(n=>n.shape==='box').sort((a,b)=>a.label.localeCompare(b.label));
+          companyListDiv.innerHTML = companyNodes.map(c=>`<div class="company-item" data-id="${c.id}" style="padding:4px 6px; border-bottom:1px solid #f1f3f5; cursor:pointer;">${c.label}</div>`).join('');
+          if (companyCount) companyCount.textContent = `(${companyNodes.length})`;
+          companyListDiv.querySelectorAll('.company-item').forEach(el=>{
+            el.addEventListener('click', ()=>{
+              const id = el.getAttribute('data-id');
+              // reveal the company in list mode by simulating a breadcrumb click via app.js handlers
+              // If app.js exposes a global handleBreadcrumbClick, prefer that; otherwise, just focus the node using vis if available
+              if (window.handleBreadcrumbClick) {
+                window.handleBreadcrumbClick(id);
+              } else if (window.network && window.network.focus) {
+                // ensure node visible then focus
+                try { window.network.focus(id, { scale: 1.4 }); } catch (e) {}
+              }
+            });
+          });
+        }
+      } catch(e) {
+        // ignore if script runs before data.js exposes nodesData
+      }
+      // Toggle company list panel
+      const showCompaniesBtn = document.getElementById('showCompaniesBtn');
+      const companyListPanel = document.getElementById('companyListPanel');
+      if (showCompaniesBtn && companyListPanel) {
+        showCompaniesBtn.addEventListener('click', ()=>{
+          const isOpen = companyListPanel.style.display !== 'none';
+          companyListPanel.style.display = isOpen ? 'none' : 'block';
+          showCompaniesBtn.textContent = isOpen ? 'Show Companies' : 'Hide Companies';
+          showCompaniesBtn.setAttribute('aria-expanded', (!isOpen).toString());
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
